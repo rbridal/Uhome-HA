@@ -111,6 +111,8 @@ Control whether lock, light, and switch entities update their state in the UI as
 
 Optimistic state is time-bounded so a command that never completes does not pin the entity forever.
 
+**Caution (locks):** Be careful enabling optimistic updates for **locks**. The UI can show locked or unlocked before the physical lock has actually changed state. That false positive can be a **security concern** (for example assuming a door is locked when it is not, or the reverse). Whether that risk is acceptable depends on your setup, automations, and how you use the lock — every case is different. Prefer confirmed state for locks if you are unsure.
+
 **Applied:** immediately on save; the next command uses the new setting.
 
 ### Polling Interval
@@ -120,6 +122,8 @@ How often Home Assistant polls the U-Tec API for device state (10–3600 seconds
 - Default is **10 seconds**, which suits installs that rely mainly on polling.
 - With working push (especially cloudhooks), a longer interval (for example 300–600 seconds) reduces API traffic while push keeps state fresh.
 - If you still have `scan_interval` under `u_tec:` in `configuration.yaml`, that value is used until you save a UI interval. YAML `scan_interval` is deprecated in favour of this option.
+
+**Note:** U-Tec push notifications have been observed to **stop for extended periods** (multiple days) even when the webhook remains registered. Until the vendor addresses that reliability issue, it is reasonable to keep a **moderate polling interval** rather than relying on push alone, so entity state still refreshes during outages.
 
 **Applied:** immediately on save (the coordinator reschedules its next poll; no reload required).
 
