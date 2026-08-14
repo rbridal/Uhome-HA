@@ -41,6 +41,7 @@ from utec_py.devices.switch import Switch as UhomeSwitch
 
 from .const import (
     CONF_HA_DEVICES,
+    CONF_MAX_UPDATE_FAILURES,
     CONF_OPTIMISTIC_LIGHTS,
     CONF_OPTIMISTIC_LOCKS,
     CONF_OPTIMISTIC_SWITCHES,
@@ -48,8 +49,11 @@ from .const import (
     CONF_PUSH_ENABLED,
     CONF_SCAN_INTERVAL,
     DEFAULT_API_SCOPE,
+    DEFAULT_MAX_UPDATE_FAILURES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_MAX_UPDATE_FAILURES,
+    MIN_MAX_UPDATE_FAILURES,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
 )
@@ -221,9 +225,8 @@ class UhomeOAuth2FlowHandler(
                 options=dict(entry.options),
             )
 
-        # Do not store scan_interval here — only persist it when the user
-        # explicitly saves Configure → Polling Interval, so configuration.yaml
-        # continues to apply until then.
+        # Do not store scan_interval / max_update_failures here — only persist
+        # them when the user explicitly saves the corresponding options steps.
         options = {
             CONF_PUSH_ENABLED: True,
             CONF_PUSH_DEVICES: [],  # Empty list means all devices
@@ -348,6 +351,18 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             current = int(yaml_config.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
         return max(_MIN_SCAN_INTERVAL, min(_MAX_SCAN_INTERVAL, current))
 
+    def _default_max_update_failures(self) -> int:
+        """UI default for consecutive failures before unavailable."""
+        current = int(
+            self.options.get(
+                CONF_MAX_UPDATE_FAILURES, DEFAULT_MAX_UPDATE_FAILURES
+            )
+        )
+        return max(
+            MIN_MAX_UPDATE_FAILURES,
+            min(MAX_MAX_UPDATE_FAILURES, current),
+        )
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -359,6 +374,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "get_devices": "Select Active Devices",
                 "optimistic_updates": "Configure Optimistic Updates",
                 "polling_interval": "Polling Interval",
+                "availability_threshold": "Availability Threshold",
             },
         )
 
@@ -390,6 +406,36 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             max=_MAX_SCAN_INTERVAL,
                             step=5,
                             unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    async def async_step_availability_threshold(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Configure consecutive poll failures before entities go unavailable."""
+        if user_input is not None:
+            self.options[CONF_MAX_UPDATE_FAILURES] = int(
+                user_input[CONF_MAX_UPDATE_FAILURES]
+            )
+            return self.async_create_entry(title="", data=self.options)
+
+        return self.async_show_form(
+            step_id="availability_threshold",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MAX_UPDATE_FAILURES,
+                        default=self._default_max_update_failures(),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_MAX_UPDATE_FAILURES,
+                            max=MAX_MAX_UPDATE_FAILURES,
+                            step=1,
                             mode=NumberSelectorMode.BOX,
                         )
                     ),

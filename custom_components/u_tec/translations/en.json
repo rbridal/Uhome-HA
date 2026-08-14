@@ -53,6 +53,13 @@
                "data": {
                    "scan_interval": "Poll interval"
                }
+           },
+           "availability_threshold": {
+               "title": "Availability Threshold",
+               "description": "How many consecutive failed API polls are required before entities are marked unavailable. 1 fails fast (default). Raise to 2–5 to tolerate transient network blips while still catching sustained outages.",
+               "data": {
+                   "max_update_failures": "Failed polls before unavailable"
+               }
            }
        }
    },
