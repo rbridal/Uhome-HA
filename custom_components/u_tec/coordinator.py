@@ -4,9 +4,10 @@ from datetime import timedelta
 import logging
 
 from custom_components.u_tec.const import (
+    CONF_MAX_UPDATE_FAILURES,
     DEFAULT_DISCOVERY_INTERVAL,
+    DEFAULT_MAX_UPDATE_FAILURES,
     DEFAULT_SCAN_INTERVAL,
-    MAX_CONSECUTIVE_UPDATE_FAILURES,
     SIGNAL_DEVICE_UPDATE,
     SIGNAL_NEW_DEVICE,
 )
@@ -81,24 +82,55 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
         self.blacklisted_devices = []
         self._discovery_interval = timedelta(seconds=discovery_interval)
         self._cancel_discovery: callable | None = None
-        # Consecutive failed polls. Entities stay available through a single
-        # transient failure; two in a row (or a device offline flag) marks them
-        # unavailable. Auth failures still raise ConfigEntryAuthFailed.
+        # Consecutive failed polls. Entities stay available until the configured
+        # threshold is reached (or a device reports offline). Auth failures still
+        # raise ConfigEntryAuthFailed.
         self.consecutive_update_failures = 0
         _LOGGER.info(
-            "Uhome data coordinator initialized (poll=%ds, discovery=%ds)",
+            "Uhome data coordinator initialized (poll=%ds, discovery=%ds, "
+            "unavailable_after=%d failed poll(s))",
             scan_interval,
             discovery_interval,
+            self.max_update_failures,
+        )
+
+    @property
+    def max_update_failures(self) -> int:
+        """Configured consecutive failures before entities go unavailable."""
+        return int(
+            self.config_entry.options.get(
+                CONF_MAX_UPDATE_FAILURES, DEFAULT_MAX_UPDATE_FAILURES
+            )
         )
 
     @property
     def poll_healthy_enough(self) -> bool:
         """Return True if poll failures have not crossed the unavailable threshold.
 
-        Used by entities instead of ``last_update_success`` so a single failed
-        poll does not blank every entity. Sustained failures still do.
+        Used by entities instead of ``last_update_success`` so a short run of
+        failed polls does not blank every entity when the threshold is > 1.
+        Sustained failures still do.
         """
-        return self.consecutive_update_failures < MAX_CONSECUTIVE_UPDATE_FAILURES
+        return self.consecutive_update_failures < self.max_update_failures
+
+    def _record_poll_failure(self, err: BaseException) -> None:
+        """Increment failure count and log warning / threshold error."""
+        self.consecutive_update_failures += 1
+        threshold = self.max_update_failures
+        _LOGGER.warning(
+            "Uhome device state poll failed (%d consecutive failure%s, "
+            "unavailable after %d): %s",
+            self.consecutive_update_failures,
+            "s" if self.consecutive_update_failures != 1 else "",
+            threshold,
+            err,
+        )
+        if self.consecutive_update_failures >= threshold:
+            _LOGGER.error(
+                "Uhome poll failures reached the configured threshold (%d); "
+                "entities will report unavailable until a successful poll",
+                threshold,
+            )
 
     async def async_start_periodic_discovery(self) -> None:
         """Start periodic device discovery separate from state polling."""
@@ -213,19 +245,19 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
                 for device_id, device in self.devices.items()
             }
         except AuthenticationError as err:
-            self.consecutive_update_failures += 1
+            self._record_poll_failure(err)
             raise ConfigEntryAuthFailed(f"Credentials expired: {err}") from err
-        except ConfigEntryAuthFailed:
-            self.consecutive_update_failures += 1
+        except ConfigEntryAuthFailed as err:
+            self._record_poll_failure(err)
             raise
         except ApiError as err:
-            self.consecutive_update_failures += 1
+            self._record_poll_failure(err)
             raise UpdateFailed(f"Error communicating with API: {err}") from err
-        except UpdateFailed:
-            self.consecutive_update_failures += 1
+        except UpdateFailed as err:
+            self._record_poll_failure(err)
             raise
-        except Exception:
-            self.consecutive_update_failures += 1
+        except Exception as err:
+            self._record_poll_failure(err)
             raise
 
     async def update_push_data(self, push_data):
