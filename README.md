@@ -81,6 +81,59 @@ When you submit, you will be taken to the U-Tec [OAuth site](https://oauth.u-tec
 
 If the credentials are ever rotated by U-Tec or you regenerate them in the Xthings app, you can update them in place via the integration's **Reconfigure** action (3-dot menu on the integration card) — no need to remove and re-add the integration.
 
+## Configure options (UI)
+
+After the integration is set up, open **Settings → Devices & services → U-Tec → Configure** to adjust runtime behaviour. None of these options require a full Home Assistant restart; they are saved to the config entry and applied as described below.
+
+### Update Push Status
+
+Enable or disable **push** state updates from U-Tec, and optionally choose which devices receive them.
+
+- When push is **enabled**, the integration registers a webhook with U-Tec (preferring a Nabu Casa cloudhook when Home Assistant Cloud is active, otherwise an external URL) and applies lock/light/switch state as soon as the cloud sends it.
+- When push is **disabled**, the webhook is unregistered; entities continue to update via polling only.
+- You can limit push to a subset of devices; if none are selected, all known devices are eligible.
+
+**Applied:** immediately on save (webhook registered or unregistered without reloading the integration).
+
+### Select Active Devices
+
+Choose which discovered U-Tec devices should be active in Home Assistant.
+
+**Applied:** on save to the integration options. If a device does not appear or disappear as expected, reload the integration entry (or restart Home Assistant) so platforms re-run setup against the updated list.
+
+### Configure Optimistic Updates
+
+Control whether lock, light, and switch entities update their state in the UI as soon as you send a command, before the device (or a push/poll) confirms it.
+
+- **All** — optimistic state for every device of that type.
+- **None** — wait for confirmed state from the API or push.
+- **Custom** — pick specific devices that should be optimistic.
+
+Optimistic state is time-bounded so a command that never completes does not pin the entity forever.
+
+**Applied:** immediately on save; the next command uses the new setting.
+
+### Polling Interval
+
+How often Home Assistant polls the U-Tec API for device state (10–3600 seconds).
+
+- Default is **10 seconds**, which suits installs that rely mainly on polling.
+- With working push (especially cloudhooks), a longer interval (for example 300–600 seconds) reduces API traffic while push keeps state fresh.
+- If you still have `scan_interval` under `u_tec:` in `configuration.yaml`, that value is used until you save a UI interval. YAML `scan_interval` is deprecated in favour of this option.
+
+**Applied:** immediately on save (the coordinator reschedules its next poll; no reload required).
+
+### Availability Threshold
+
+How many **consecutive failed API polls** are required before entities are marked unavailable (1–5).
+
+- **1** (default) — fail fast: the first failed poll marks entities unavailable (classic Home Assistant coordinator behaviour).
+- **2–5** — tolerate short network or API blips; entities stay available until the threshold is reached. A successful poll resets the counter. Devices that report offline are still unavailable regardless of this setting.
+
+Failed polls log a **warning** each time. When the threshold is reached, an **error** is logged stating that entities will report unavailable until a successful poll.
+
+**Applied:** immediately on save; the next poll uses the new threshold.
+
 ## Troubleshooting
 See [FAQ](https://github.com/LF2b2w/Uhome-HA/discussions/2)
     
