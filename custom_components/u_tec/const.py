@@ -22,11 +22,16 @@ DOMAIN = "u_tec"
 # https://github.com/LF2b2w/Uhome-HA/issues/58
 OPTIMISTIC_TIMEOUT = timedelta(seconds=30)
 
-# How many consecutive coordinator poll failures are allowed before entities
-# report unavailable. One failure is treated as a transient blip; two in a
-# row (or a device that reports offline) marks entities unavailable.
-# Auth failures immediately set the counter to this threshold.
-MAX_CONSECUTIVE_UPDATE_FAILURES = 2
+# Consecutive coordinator poll failures before entities report unavailable.
+# Configurable via options (1–5). Default 2 matches the behaviour introduced
+# in #61 (tolerate one transient blip). Auth failures set the counter to the
+# threshold immediately.
+CONF_MAX_UPDATE_FAILURES = "max_update_failures"
+DEFAULT_MAX_UPDATE_FAILURES = 2
+MIN_MAX_UPDATE_FAILURES = 1
+MAX_MAX_UPDATE_FAILURES = 5
+# Alias kept for older imports / tests.
+MAX_CONSECUTIVE_UPDATE_FAILURES = DEFAULT_MAX_UPDATE_FAILURES
 
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_DISCOVERY_INTERVAL = "discovery_interval"
