@@ -41,6 +41,7 @@ from utec_py.devices.switch import Switch as UhomeSwitch
 
 from .const import (
     CONF_HA_DEVICES,
+    CONF_MAX_UPDATE_FAILURES,
     CONF_OPTIMISTIC_LIGHTS,
     CONF_OPTIMISTIC_LOCKS,
     CONF_OPTIMISTIC_SWITCHES,
@@ -48,9 +49,12 @@ from .const import (
     CONF_PUSH_ENABLED,
     CONF_SCAN_INTERVAL,
     DEFAULT_API_SCOPE,
+    DEFAULT_MAX_UPDATE_FAILURES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_MAX_UPDATE_FAILURES,
     MAX_SCAN_INTERVAL,
+    MIN_MAX_UPDATE_FAILURES,
     MIN_SCAN_INTERVAL,
     OAUTH2_AUTHORIZE,
     OAUTH2_TOKEN,
@@ -303,6 +307,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 "get_devices": "Select Active Devices",
                 "optimistic_updates": "Configure Optimistic Updates",
                 "polling_interval": "Polling Interval",
+                "availability_threshold": "Availability Threshold",
             },
         )
 
@@ -331,6 +336,52 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             max=MAX_SCAN_INTERVAL,
                             step=5,
                             unit_of_measurement="seconds",
+                            mode=NumberSelectorMode.BOX,
+                        )
+                    ),
+                }
+            ),
+        )
+
+    def _default_max_update_failures(self) -> int:
+        """UI default: saved option, else built-in default."""
+        current = int(
+            self.options.get(
+                CONF_MAX_UPDATE_FAILURES, DEFAULT_MAX_UPDATE_FAILURES
+            )
+        )
+        return max(
+            MIN_MAX_UPDATE_FAILURES,
+            min(MAX_MAX_UPDATE_FAILURES, current),
+        )
+
+    async def async_step_availability_threshold(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> ConfigFlowResult:
+        """Configure consecutive poll failures before entities go unavailable."""
+        if user_input is not None:
+            self.options[CONF_MAX_UPDATE_FAILURES] = vol.All(
+                vol.Coerce(int),
+                vol.Range(
+                    min=MIN_MAX_UPDATE_FAILURES,
+                    max=MAX_MAX_UPDATE_FAILURES,
+                ),
+            )(user_input[CONF_MAX_UPDATE_FAILURES])
+            return self.async_create_entry(title="", data=self.options)
+
+        return self.async_show_form(
+            step_id="availability_threshold",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_MAX_UPDATE_FAILURES,
+                        default=self._default_max_update_failures(),
+                    ): NumberSelector(
+                        NumberSelectorConfig(
+                            min=MIN_MAX_UPDATE_FAILURES,
+                            max=MAX_MAX_UPDATE_FAILURES,
+                            step=1,
                             mode=NumberSelectorMode.BOX,
                         )
                     ),
