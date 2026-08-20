@@ -81,6 +81,33 @@ When you submit, you will be taken to the U-Tec [OAuth site](https://oauth.u-tec
 
 If the credentials are ever rotated by U-Tec or you regenerate them in the Xthings app, you can update them in place via the integration's **Reconfigure** action (3-dot menu on the integration card) — no need to remove and re-add the integration.
 
+## Configure options (UI)
+
+After setup, open **Settings → Devices & services → U-Tec → Configure**. Changes apply without a full Home Assistant restart unless noted.
+
+### Update Push Status
+Enable/disable push state updates and optionally limit which devices receive them. Prefer Nabu Casa cloudhooks when Cloud is active. **Applied:** immediately (webhook register/unregister).
+
+### Select Active Devices
+Choose which discovered devices are exposed in Home Assistant.
+
+### Configure Optimistic Updates
+Control whether lock / light / switch commands optimistically update the UI before the device confirms. Can be all, none, or per-device.
+
+### Polling Interval
+How often Home Assistant polls the U-Tec API for device state (default 10 seconds). With reliable push/cloudhook you can raise this. Values from configuration.yaml apply only until a UI value is saved.
+
+### Availability Threshold
+How many **consecutive failed API polls** are required before entities are marked unavailable (1–5).
+
+- **2** (default) — tolerate a single transient failure (matches the behaviour introduced in #61).
+- **1** — fail fast on the first failed poll.
+- **3–5** — more tolerance for flaky networks; a successful poll or push resets the counter. Devices that report offline are still unavailable.
+
+Failed polls log a **warning** each time. When the threshold is reached, an **error** is logged. Auth failures mark entities unavailable immediately regardless of this setting.
+
+**Applied:** immediately on the next poll.
+
 ## Troubleshooting
 See [FAQ](https://github.com/LF2b2w/Uhome-HA/discussions/2)
     
