@@ -11,15 +11,36 @@ from typing import Any
 
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from .const import (
     ADAPTIVE_AGGRESSIVE_INITIAL_DELAY,
     ADAPTIVE_AGGRESSIVE_MAX_ATTEMPTS,
+    ADAPTIVE_AGGRESSIVE_TIMEOUT_VALUE,
     DEFAULT_SCAN_INTERVAL,
+    SIGNAL_ADAPTIVE_OUTCOME,
     SIGNAL_DEVICE_UPDATE,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_SKIP_OUTCOME = {"unload", "restarted", "device gone"}
+
+
+def outcome_value(reason: str, attempts: int) -> int | None:
+    """Map a burst stop to the 0-6 statistic.
+
+    0 = push cancelled the burst (webhook won).
+    1-5 = polls until the commanded state was confirmed.
+    6 = gave up (max attempts or next delay >= idle).
+    """
+    if reason in _SKIP_OUTCOME:
+        return None
+    if reason == "push":
+        return 0
+    if reason == "confirmed":
+        return min(ADAPTIVE_AGGRESSIVE_MAX_ATTEMPTS, max(1, int(attempts)))
+    return ADAPTIVE_AGGRESSIVE_TIMEOUT_VALUE
 
 
 class AdaptivePoller:
@@ -28,6 +49,8 @@ class AdaptivePoller:
     def __init__(self, coordinator) -> None:
         self.coordinator = coordinator
         self._bursts: dict[str, dict[str, Any]] = {}
+        # device_id -> last recorded outcome (value, attempts, reason, at)
+        self.last_outcome: dict[str, dict[str, Any]] = {}
 
     def idle_interval_seconds(self) -> int:
         interval = self.coordinator.update_interval
@@ -42,16 +65,47 @@ class AdaptivePoller:
         unsub = burst.get("unsub")
         if unsub:
             unsub()
+        attempts = int(burst.get("attempt", 0))
         _LOGGER.info(
             "Adaptive aggressive stopped for %s after %s attempt(s): %s",
             device_id,
-            burst.get("attempt", 0),
+            attempts,
             reason,
         )
+        self._record_outcome(device_id, reason, attempts, burst)
 
     def cancel_all(self, reason: str = "unload") -> None:
         for device_id in list(self._bursts):
             self.cancel(device_id, reason)
+
+    def _record_outcome(
+        self,
+        device_id: str,
+        reason: str,
+        attempts: int,
+        burst: dict[str, Any],
+    ) -> None:
+        value = outcome_value(reason, attempts)
+        if value is None:
+            return
+        self.last_outcome[device_id] = {
+            "value": value,
+            "attempts": attempts,
+            "reason": reason,
+            "expected_locked": burst.get("expected_locked"),
+            "at": dt_util.utcnow().isoformat(),
+        }
+        _LOGGER.info(
+            "Adaptive aggressive outcome for %s: %s (reason=%s attempts=%s)",
+            device_id,
+            value,
+            reason,
+            attempts,
+        )
+        async_dispatcher_send(
+            self.coordinator.hass,
+            f"{SIGNAL_ADAPTIVE_OUTCOME}_{device_id}",
+        )
 
     def start(self, device_id: str, expected_locked: bool) -> None:
         idle = self.idle_interval_seconds()
@@ -94,9 +148,6 @@ class AdaptivePoller:
         if burst is None:
             return
 
-        # Pass a coroutine function so HA schedules the tick on the event
-        # loop. A sync callback + hass.async_create_task is treated as a
-        # thread-safety error on HA 2026.9+ and the poll never runs.
         async def _fire(_now) -> None:
             await self.async_tick(device_id)
 
