@@ -94,8 +94,11 @@ class AdaptivePoller:
         if burst is None:
             return
 
-        def _fire(_now) -> None:
-            self.coordinator.hass.async_create_task(self.async_tick(device_id))
+        # Pass a coroutine function so HA schedules the tick on the event
+        # loop. A sync callback + hass.async_create_task is treated as a
+        # thread-safety error on HA 2026.9+ and the poll never runs.
+        async def _fire(_now) -> None:
+            await self.async_tick(device_id)
 
         burst["unsub"] = async_call_later(self.coordinator.hass, delay, _fire)
 
