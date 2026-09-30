@@ -88,6 +88,20 @@
           "optimistic_locks": "Optimistic locks"
         }
       },
+      "adaptive_aggressive": {
+        "title": "Adaptive Aggressive Locks",
+        "description": "After a lock or unlock command, poll that lock on 1s, 2s, 3s, 5s, 8s (Fibonacci) until the API confirms the commanded state. Idle polling is unchanged.",
+        "data": {
+          "locks_mode": "Locks"
+        }
+      },
+      "pick_adaptive_locks": {
+        "title": "Adaptive Aggressive Locks",
+        "description": "Select the locks that should use Adaptive Aggressive confirmation polling. Unselected locks stay on the idle poll interval.",
+        "data": {
+          "adaptive_aggressive_locks": "Adaptive Aggressive locks"
+        }
+      },
       "polling_interval": {
         "title": "Polling Interval",
         "description": "How often Home Assistant should poll the U-Tec API for device state. With working push (cloudhook) updates you can raise this (e.g. 300–600 seconds). The default of 10 seconds suits installs that rely mainly on polling.",
@@ -103,6 +117,13 @@
         "all": "All devices optimistic",
         "none": "No devices optimistic",
         "custom": "Custom per-device"
+      }
+    },
+    "adaptive_aggressive_mode": {
+      "options": {
+        "all": "All locks",
+        "none": "No locks",
+        "custom": "Custom per-lock"
       }
     }
   }
