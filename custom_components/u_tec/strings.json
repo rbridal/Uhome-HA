@@ -60,7 +60,7 @@
       },
       "optimistic_updates": {
         "title": "Optimistic Updates",
-        "description": "Pick how each device type should reflect commands. 'All' writes optimistic state for every device of that type, 'None' waits for confirmed state, 'Custom' lets you pick specific devices.",
+        "description": "Pick how each device type should reflect commands. 'All' writes optimistic state immediately, 'None' waits for the API. For locks, 'None' is the safer choice when Adaptive Aggressive is on.",
         "data": {
           "lights_mode": "Lights",
           "switches_mode": "Switches",
@@ -83,14 +83,14 @@
       },
       "pick_locks": {
         "title": "Optimistic Locks",
-        "description": "Select the lock devices that should use optimistic updates. Unselected locks will wait for confirmed state.",
+        "description": "Select the lock devices that should use optimistic updates. Unselected locks will wait for confirmed state. Recommended: leave locks unselected when Adaptive Aggressive is enabled.",
         "data": {
           "optimistic_locks": "Optimistic locks"
         }
       },
       "adaptive_aggressive": {
         "title": "Adaptive Aggressive Locks",
-        "description": "After a lock or unlock command, poll that lock on 1s, 2s, 3s, 5s, 8s (Fibonacci) until the API confirms the commanded state. Idle polling is unchanged.",
+        "description": "After a lock or unlock command, poll that lock on a Fibonacci delay (1s, 2s, 3s, 5s, 8s) until the API confirms the commanded state. Recommended on. Does not change idle polling.",
         "data": {
           "locks_mode": "Locks"
         }
@@ -104,7 +104,7 @@
       },
       "polling_interval": {
         "title": "Polling Interval",
-        "description": "How often Home Assistant should poll the U-Tec API for device state. With working push (cloudhook) updates you can raise this (e.g. 300–600 seconds). The default of 10 seconds suits installs that rely mainly on polling.",
+        "description": "How often Home Assistant should poll the U-Tec API when idle. With Adaptive Aggressive enabled, 20 seconds is the recommended lock-safe interval. Raise further only if U-Tec push is actually arriving.",
         "data": {
           "scan_interval": "Poll interval"
         }
