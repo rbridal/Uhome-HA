@@ -14,7 +14,9 @@ CONF_OPTIMISTIC_LOCKS = "optimistic_locks"
 DEFAULT_OPTIMISTIC = True
 
 CONF_ADAPTIVE_AGGRESSIVE_LOCKS = "adaptive_aggressive_locks"
-DEFAULT_ADAPTIVE_AGGRESSIVE = False
+# Shop-test default ON so a lock command produces 1/2/4/8 logs without an
+# options-flow visit. Product default goes back to False after shop soak.
+DEFAULT_ADAPTIVE_AGGRESSIVE = True
 
 
 def _is_device_option_enabled(
@@ -50,10 +52,7 @@ def is_adaptive_aggressive_enabled(
     options: Mapping[str, Any],
     device_id: str,
 ) -> bool:
-    """Return True if Adaptive Aggressive polling is enabled for this lock.
-
-    Same value shape as optimistic options, but default off.
-    """
+    """Return True if Adaptive Aggressive polling is enabled for this lock."""
     return _is_device_option_enabled(
         options,
         CONF_ADAPTIVE_AGGRESSIVE_LOCKS,
@@ -63,20 +62,7 @@ def is_adaptive_aggressive_enabled(
 
 
 def push_asserts_state(push_data: Any, capability: str, attribute: str) -> bool:
-    """Return True if a push payload actually carries the given capability state.
-
-    U-Tec pushes are full-state replaces (utec_py update_state_data assigns the
-    payload wholesale), and the device accessors fall back to a default when a
-    capability is absent -- e.g. Lock.is_locked and Switch.is_on both return
-    False when their capability is missing, which is indistinguishable from a
-    real "unlocked"/"off". A partial push (a door-sensor or battery event that
-    omits the lock/switch state) would therefore read as an authoritative
-    "off"/"unlocked" and wrongly clear optimistic state mid-command.
-
-    push_data is the {capability: {attribute: value}} dict produced by
-    device.get_state_data(); only treat a push as asserting the state when the
-    relevant capability/attribute is actually present in it.
-    """
+    """Return True if a push payload actually carries the given capability state."""
     if not isinstance(push_data, dict):
         return False
     cap = push_data.get(capability)
