@@ -8,7 +8,7 @@ A Home Assistant integration for U-Tec smart home devices via the Uhome API that
     - Lights
     - Switches
     - Smart Plugs (Wifi)
- 
+
 ### Features
 - Secure API communication
 - Locking and unlocking
@@ -17,6 +17,38 @@ A Home Assistant integration for U-Tec smart home devices via the Uhome API that
 - Battery levels
 - Switch on and off (Lightbulbs use the switch capabilitiy for some reason, so at very least they should have rudimentary functionality)
 - SwitchLevel (Honestly, idk what this is actually for, but hopefully we can use it to control light brightness until they properly implement light controls)
+- Adaptive Aggressive lock confirmation when U-Tec push/webhooks are missing or late
+
+## Adaptive Aggressive (locks)
+
+U-Tec can register a webhook or cloudhook, but those push updates often never arrive. Without a workaround, Home Assistant only learns the new lock state on the next idle poll — 10–60 seconds late, or longer if you raised the interval to spare the API.
+
+Adaptive Aggressive fills that gap **only after a lock or unlock command from Home Assistant**:
+
+1. The command is sent as usual.
+2. A one-device confirmation burst starts: poll at **1s, then 2s, 3s, 5s, 8s** (Fibonacci).
+3. The burst stops as soon as the API reports the commanded state, a U-Tec push finally arrives, 5 attempts are used, or the next delay would be ≥ the idle poll interval.
+4. Idle polling for every other device stays at the configured interval. Lights and switches are not burst-polled.
+
+Each burst writes a diagnostic sensor (`Adaptive Aggressive`) on the lock:
+
+| Value | Meaning |
+| --- | --- |
+| 0 | A push cancelled the burst (webhook actually worked) |
+| 1–5 | Polls until the commanded state was confirmed |
+| 6 | Gave up (max attempts or next delay ≥ idle) |
+
+### Recommended lock settings
+
+Safest everyday setup when you care about the true bolt state:
+
+- **Polling interval: 20 seconds.** Slow enough to be kind to the API, fast enough that a missed burst still heals. Adaptive Aggressive never schedules a delay ≥ this interval, so 20s still allows the full 1/2/3/5/8 sequence.
+- **Optimistic updates for locks: off.** Home Assistant should show what the API confirmed, not what we hoped happened. Adaptive Aggressive is what makes that confirmation arrive quickly.
+- **Adaptive Aggressive: on** (all locks, or the ones you operate from Home Assistant).
+
+Configure those under **Settings → Devices & services → U-Tec → Configure**.
+
+Passage mode is left alone: a lock already in Passage does not start a burst, because there is no commanded bolt state to confirm.
 
 ## Limitations
 - Currently the Utec API doesn't support the following devices:
@@ -81,9 +113,11 @@ When you submit, you will be taken to the U-Tec [OAuth site](https://oauth.u-tec
 
 If the credentials are ever rotated by U-Tec or you regenerate them in the Xthings app, you can update them in place via the integration's **Reconfigure** action (3-dot menu on the integration card) — no need to remove and re-add the integration.
 
+Lock-specific options (polling interval, optimistic updates, Adaptive Aggressive) are on the integration's **Configure** menu after setup.
+
 ## Troubleshooting
 See [FAQ](https://github.com/LF2b2w/Uhome-HA/discussions/2)
-    
+
 ## Contributing
 Contributions are welcome! Please feel free to submit a Pull Request.
 
