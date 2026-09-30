@@ -49,7 +49,7 @@
            },
            "adaptive_aggressive": {
                "title": "Adaptive Aggressive Locks",
-               "description": "After a lock or unlock command, poll that lock on 1s, 2s, 4s, 8s, 16s until the API confirms the commanded state. Off by default. Idle polling is unchanged.",
+               "description": "After a lock or unlock command, poll that lock on 1s, 2s, 3s, 5s, 8s (Fibonacci) until the API confirms the commanded state. Off by default. Idle polling is unchanged.",
                "data": {
                    "locks_mode": "Locks"
                }
