@@ -44,12 +44,11 @@ def outcome_value(reason: str, attempts: int) -> int | None:
 
 
 class AdaptivePoller:
-    """Per-device 1/2/4/8/16 confirmation bursts."""
+    """Per-device Fibonacci confirmation bursts (1, 2, 3, 5, 8s)."""
 
     def __init__(self, coordinator) -> None:
         self.coordinator = coordinator
         self._bursts: dict[str, dict[str, Any]] = {}
-        # device_id -> last recorded outcome (value, attempts, reason, at)
         self.last_outcome: dict[str, dict[str, Any]] = {}
 
     def idle_interval_seconds(self) -> int:
@@ -122,10 +121,13 @@ class AdaptivePoller:
         if device_id in self._bursts:
             self.cancel(device_id, "restarted")
 
+        # prev_delay starts equal to initial so the sequence is 1, 2, 3, 5, 8
+        # rather than 1, 1, 2, 3, 5.
         self._bursts[device_id] = {
             "expected_locked": expected_locked,
             "attempt": 0,
             "delay": initial,
+            "prev_delay": initial,
             "unsub": None,
         }
         _LOGGER.info(
@@ -218,7 +220,8 @@ class AdaptivePoller:
             self.cancel(device_id, "max attempts")
             return
 
-        next_delay = delay * 2
+        prev_delay = int(burst.get("prev_delay", delay))
+        next_delay = delay + prev_delay
         idle = self.idle_interval_seconds()
         if next_delay >= idle:
             self.cancel(
@@ -227,5 +230,6 @@ class AdaptivePoller:
             )
             return
 
+        burst["prev_delay"] = delay
         burst["delay"] = next_delay
         self._schedule(device_id, next_delay)
