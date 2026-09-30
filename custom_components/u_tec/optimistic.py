@@ -14,8 +14,8 @@ CONF_OPTIMISTIC_LOCKS = "optimistic_locks"
 DEFAULT_OPTIMISTIC = True
 
 CONF_ADAPTIVE_AGGRESSIVE_LOCKS = "adaptive_aggressive_locks"
-# Shop-test default ON so a lock command produces 1/2/4/8 logs without an
-# options-flow visit. Product default goes back to False after shop soak.
+# Recommended on for locks: confirm commanded state with a short burst
+# instead of waiting for the idle poll (U-Tec push is unreliable).
 DEFAULT_ADAPTIVE_AGGRESSIVE = True
 
 
