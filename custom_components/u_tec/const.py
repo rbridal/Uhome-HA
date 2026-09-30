@@ -28,9 +28,9 @@ MIN_SCAN_INTERVAL = 10
 MAX_SCAN_INTERVAL = 3600
 
 # Adaptive Aggressive lock confirmation. After a lock/unlock command, poll
-# that one device on 1, 2, 4, 8, 16s until the API reports the commanded
-# state. Cap at 5 attempts and never schedule a delay >= the idle scan
-# interval.
+# that one device on a Fibonacci delay (1, 2, 3, 5, 8s) until the API
+# reports the commanded state. Cap at 5 attempts and never schedule a
+# delay >= the idle scan interval.
 ADAPTIVE_AGGRESSIVE_INITIAL_DELAY = 1
 ADAPTIVE_AGGRESSIVE_MAX_ATTEMPTS = 5
 # Sensor encoding: 0=push, 1-5=polls until confirm, 6=timed out.
