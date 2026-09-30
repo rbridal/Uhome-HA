@@ -1,8 +1,9 @@
 """Data coordinator for Uhome integration."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 
+from custom_components.u_tec.adaptive import AdaptivePoller
 from custom_components.u_tec.const import (
     DEFAULT_DISCOVERY_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
@@ -17,6 +18,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 from utec_py.api import UHomeApi
 from utec_py.devices.device import BaseDevice
 from utec_py.devices.light import Light
@@ -31,7 +33,7 @@ def _raise_for_error_payload(response, *, auth_only: bool = False) -> None:
     """Surface U-Tec error envelopes returned with an HTTP 2xx status.
 
     U-Tec replies HTTP 200 even on failure, carrying the error under
-    ``payload.error`` (e.g. ``{"code": "INVALID_TOKEN", "message": ...}``).
+    ``payload.error`` (e.g. ``{\"code\": \"INVALID_TOKEN\", \"message\": ...}``).
     Left unraised, a revoked/expired token is swallowed and the coordinator
     serves stale state indefinitely with no reauth prompt. ``INVALID_TOKEN``
     becomes ``ConfigEntryAuthFailed`` (so HA triggers reauth and marks entities
@@ -79,12 +81,10 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
         self.added_sensor_entities = set()
         self.push_devices = []
         self.blacklisted_devices = []
+        self.last_push_received: datetime | None = None
+        self.adaptive = AdaptivePoller(self)
         self._discovery_interval = timedelta(seconds=discovery_interval)
         self._cancel_discovery: callable | None = None
-        # Consecutive failed polls. Entities stay available through a single
-        # transient failure; two in a row (or a device offline flag) marks them
-        # unavailable. Auth failures set the counter to the threshold immediately
-        # because HA stops rescheduling after ConfigEntryAuthFailed.
         self.consecutive_update_failures = 0
         _LOGGER.info(
             "Uhome data coordinator initialized (poll=%ds, discovery=%ds)",
@@ -94,11 +94,7 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
 
     @property
     def poll_healthy_enough(self) -> bool:
-        """Return True if poll failures have not crossed the unavailable threshold.
-
-        Used by entities instead of ``last_update_success`` so a single failed
-        poll does not blank every entity. Sustained failures still do.
-        """
+        """Return True if poll failures have not crossed the unavailable threshold."""
         return self.consecutive_update_failures < MAX_CONSECUTIVE_UPDATE_FAILURES
 
     async def async_start_periodic_discovery(self) -> None:
@@ -118,6 +114,18 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
             self._cancel_discovery()
             self._cancel_discovery = None
 
+    def async_stop_adaptive_polls(self) -> None:
+        """Cancel every Adaptive Aggressive burst (entry unload)."""
+        self.adaptive.cancel_all("unload")
+
+    def start_adaptive_poll(self, device_id: str, expected_locked: bool) -> None:
+        """Start (or restart) an Adaptive Aggressive burst for one lock."""
+        self.adaptive.start(device_id, expected_locked)
+
+    def cancel_adaptive_poll(self, device_id: str, reason: str) -> None:
+        """Stop an Adaptive Aggressive burst for one device."""
+        self.adaptive.cancel(device_id, reason)
+
     async def async_discover_devices(self) -> None:
         """Discover devices and register any new ones. Does not update state."""
         _LOGGER.debug("Discovering Uhome devices")
@@ -131,9 +139,6 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Invalid discovery data received: %s", discovery_data)
             return
 
-        # A revoked token returns an INVALID_TOKEN envelope here; surface it so
-        # setup/reload fails into reauth instead of silently building 0 devices
-        # (which wipes every entity to unavailable on reload).
         _raise_for_error_payload(discovery_data, auth_only=True)
 
         devices_data = discovery_data.get("payload", {}).get("devices", [])
@@ -146,8 +151,6 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
                 continue
 
             handle_type = device_data.get("handleType", "").lower()
-            # "dimmer" check must come before "switch" since "utec-dimmer"
-            # contains neither "light" nor "switch".
             if "lock" in handle_type:
                 _LOGGER.info("Adding new lock device: %s", device_id)
                 device = Lock(device_data, self.api)
@@ -169,7 +172,6 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
             new_device_ids.append(device_id)
 
         if new_device_ids:
-            # Fetch initial state for all new devices in a single bulk call.
             try:
                 response = await self.api.get_device_state(new_device_ids, None)
                 if response and "payload" in response:
@@ -196,17 +198,15 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             device_ids = list(self.devices.keys())
             response = await self.api.get_device_state(device_ids, None)
-
-            # U-Tec returns HTTP 200 with an error envelope (e.g. INVALID_TOKEN) that
-            # get_device_state does not raise on — surface it instead of treating an
-            # error response as an empty-but-successful poll.
             _raise_for_error_payload(response)
 
             if response and "payload" in response:
                 for device_data in response["payload"].get("devices", []):
                     device_id = device_data.get("id")
                     if device_id and device_id in self.devices:
-                        await self.devices[device_id].update_state_data(device_data)
+                        device = self.devices[device_id]
+                        await device.update_state_data(device_data)
+                        self.adaptive.cancel_if_confirmed(device_id, device)
 
             self.consecutive_update_failures = 0
             return {
@@ -214,8 +214,6 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
                 for device_id, device in self.devices.items()
             }
         except AuthenticationError as err:
-            # HA stops rescheduling after ConfigEntryAuthFailed, so a single
-            # increment would leave entities "available" with stale state.
             self.consecutive_update_failures = MAX_CONSECUTIVE_UPDATE_FAILURES
             raise ConfigEntryAuthFailed(f"Credentials expired: {err}") from err
         except ConfigEntryAuthFailed:
@@ -233,27 +231,18 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
 
     async def update_push_data(self, push_data):
         """Process push update from webhook."""
-
+        self.last_push_received = dt_util.utcnow()
         _LOGGER.debug("Processing push update: %s", push_data)
-
-        # The webhook payload from U-Tec's server can arrive in two
-        # shapes:
-        #   (a) {"payload": {"devices": [...]}}  — the expected nested shape
-        #   (b) A flat list of device-state dicts  — seen in production (Issue #30,
-        #       the "'list' object has no attribute 'get'" crash)
-        # We normalise both into a list of device dicts before processing.
 
         try:
             devices_data = []
 
             if isinstance(push_data, list):
-                # Shape (b): the payload itself is the list
                 _LOGGER.debug("Push data is a flat list — normalising")
                 devices_data = push_data
             elif isinstance(push_data, dict):
                 payload = push_data.get("payload", {})
                 if isinstance(payload, list):
-                    # Occasionally payload is itself the list
                     devices_data = payload
                 elif isinstance(payload, dict):
                     raw = payload.get("devices", [])
@@ -281,7 +270,6 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
                     _LOGGER.warning("Device ID missing in push update")
                     continue
 
-                # Check if this device should receive push updates
                 if self.push_devices and device_id not in self.push_devices:
                     _LOGGER.debug(
                         "Skipping push update for device %s (not in selected devices)",
@@ -292,29 +280,23 @@ class UhomeDataUpdateCoordinator(DataUpdateCoordinator):
                 if device_id in self.devices:
                     device = self.devices[device_id]
                     await device.update_state_data(device_data)
-
                     _LOGGER.debug(
                         "Updated device %s with push data: %s",
                         device_id,
                         device_data,
                     )
-
                     async_dispatcher_send(
                         self.hass,
                         f"{SIGNAL_DEVICE_UPDATE}_{device_id}",
                         device.get_state_data(),
                     )
+                    self.adaptive.cancel(device_id, "push")
                 else:
                     _LOGGER.debug(
                         "Received update for unknown device: %s", device_id
                     )
 
-            # A successful authenticated push proves the channel is alive —
-            # reset the poll-failure counter so entities stay available during
-            # transient poll outages while push continues to deliver state.
             self.consecutive_update_failures = 0
-
-            # Trigger data update for all entities
             self.async_set_updated_data(self.data)
 
         except (ValueError, TypeError, AttributeError) as err:
